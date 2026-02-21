@@ -180,9 +180,18 @@ app.post('/api/auth/login', async (req, res) => {
 // Image is stored as Base64 in MongoDB — no disk involved.
 app.post('/api/events', upload.single('imageFile'), async (req, res) => {
     try {
+        console.log('📝 Create Event Body:', req.body); // ADD THIS
+        console.log('📁 Create Event File:', req.file ? 'File received' : 'No file'); // ADD THIS
+
         const { title, description, type, department, audience, registrationDeadline, image, isPaid, price } = req.body;
 
-        // FIX 2: If a file was uploaded, convert to Base64 and store in DB
+        if (!description || !audience) {
+            return res.status(400).json({ 
+                message: 'Missing fields', 
+                received: req.body  // This will show what actually arrived
+            });
+        }
+
         let imageData = image || null;
         if (req.file) {
             imageData = bufferToBase64(req.file.buffer, req.file.mimetype);
@@ -195,7 +204,7 @@ app.post('/api/events', upload.single('imageFile'), async (req, res) => {
             department,
             audience,
             registrationDeadline,
-            image: imageData, // Base64 string or external URL
+            image: imageData,
             isPaid: isPaid === 'true',
             price: Number(price) || 0
         });
