@@ -26,7 +26,6 @@ const __dirname = path.dirname(__filename);
 // EMAIL_PASS must be a Gmail App Password (16 chars),
 // NOT your actual Gmail password.
 // Generate at: myaccount.google.com → Security → App Passwords
-import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 console.log('🚀 Email Service Ready (Resend)');
