@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from './models/User.js';
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import { createCanvas, loadImage } from 'canvas';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -26,47 +26,30 @@ const __dirname = path.dirname(__filename);
 // EMAIL_PASS must be a Gmail App Password (16 chars),
 // NOT your actual Gmail password.
 // Generate at: myaccount.google.com → Security → App Passwords
-// ─────────────────────────────────────────────
-const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // SSL — required for port 465
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-    }
-});
+import { Resend } from 'resend';
 
-// Verify SMTP connection on startup
-transporter.verify((error, success) => {
-    if (error) {
-        console.error('❌ SMTP Connection Error:', error.message);
-    } else {
-        console.log('🚀 Email Server Ready to Deliver OTPs');
-    }
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
+console.log('🚀 Email Service Ready (Resend)');
 
 const sendVerificationEmail = async (email, code) => {
-    const mailOptions = {
-        from: `"COGNI AI Team" <${process.env.EMAIL_USER}>`,
+    await resend.emails.send({
+        from: 'COGNI AI <onboarding@resend.dev>',
         to: email,
-        subject: '🔐 COGNI AI: Your Registration Verification Code',
+        subject: '🔐 COGNI AI: Your Verification Code',
         html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
                 <h2 style="color: #2563eb; text-align: center;">Welcome to COGNI AI</h2>
                 <p>Hello,</p>
-                <p>Thank you for registering. Please use the verification code below to activate your account:</p>
+                <p>Use the verification code below to activate your account:</p>
                 <div style="text-align: center; margin: 30px 0;">
                     <span style="font-size: 2.5rem; font-weight: 800; letter-spacing: 5px; color: #1e293b; background: #f1f5f9; padding: 10px 20px; border-radius: 8px;">${code}</span>
                 </div>
-                <p>This code will expire in 10 minutes. If you did not request this, please ignore this email.</p>
+                <p>This code expires in 10 minutes.</p>
                 <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-                <p style="font-size: 0.8rem; color: #64748b; text-align: center;">© 2026 COGNI AI Forum • Institutional Intelligence Platform</p>
+                <p style="font-size: 0.8rem; color: #64748b; text-align: center;">© 2026 COGNI AI Forum</p>
             </div>
         `
-    };
-
-    await transporter.sendMail(mailOptions);
+    });
 };
 
 // ─────────────────────────────────────────────
