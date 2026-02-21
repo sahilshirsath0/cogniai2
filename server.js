@@ -42,11 +42,13 @@ try {
 }
 
 // Send Verification Email with proper error handling
+// Send Verification Email with STRICT validation
 const sendVerificationEmail = async (email, code) => {
     console.log('\n📧 Attempting to send verification email...');
     console.log('To:', email);
     console.log('Code:', code);
     console.log('Email Service Ready:', emailServiceReady);
+    console.log('API Key exists:', !!process.env.RESEND_API_KEY);
 
     if (!emailServiceReady || !resend) {
         const error = new Error('Email service not configured. Check RESEND_API_KEY in environment variables.');
@@ -74,14 +76,43 @@ const sendVerificationEmail = async (email, code) => {
             `
         });
 
+        console.log('📧 Resend Response:', JSON.stringify(result, null, 2));
+
+        // CRITICAL: Check if result has error
+        if (result.error) {
+            console.error('❌ Resend returned error:', result.error);
+            throw new Error(`Resend Error: ${result.error.message || JSON.stringify(result.error)}`);
+        }
+
+        // CRITICAL: Check if we got an ID back
+        if (!result.id && !result.data?.id) {
+            console.error('❌ No message ID returned from Resend');
+            console.error('Full response:', result);
+            throw new Error('Email sending failed - no message ID returned. Check your Resend API key and domain verification.');
+        }
+
+        const messageId = result.id || result.data?.id;
         console.log('✅ Email sent successfully!');
-        console.log('📧 Message ID:', result.id);
-        return result;
+        console.log('📧 Message ID:', messageId);
+        
+        return { success: true, messageId };
     } catch (error) {
         console.error('❌ EMAIL SENDING FAILED!');
-        console.error('Error:', error.message);
+        console.error('Error Type:', error.name);
+        console.error('Error Message:', error.message);
         console.error('Full Error:', error);
-        throw new Error(`Failed to send email: ${error.message}`);
+        
+        // Better error messages
+        let userMessage = 'Failed to send email';
+        if (error.message.includes('API key')) {
+            userMessage = 'Email service configuration error. Invalid API key.';
+        } else if (error.message.includes('domain')) {
+            userMessage = 'Email domain not verified. Please contact support.';
+        } else if (error.message.includes('rate limit')) {
+            userMessage = 'Too many emails sent. Please try again in a few minutes.';
+        }
+        
+        throw new Error(userMessage);
     }
 };
 
