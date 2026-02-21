@@ -20,56 +20,117 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ─────────────────────────────────────────────
-// FIX 1: Use explicit SMTP instead of service:'gmail'
-// This is more reliable on cloud platforms like Render.
-// EMAIL_PASS must be a Gmail App Password (16 chars),
-// NOT your actual Gmail password.
-// Generate at: myaccount.google.com → Security → App Passwords
+// ═══════════════════════════════════════════════
+// EMAIL CONFIGURATION - RESEND
+// ═══════════════════════════════════════════════
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-console.log('🚀 Email Service Ready (Resend)');
+let resend = null;
+let emailServiceReady = false;
 
+// Initialize Resend with error handling
+try {
+    if (!process.env.RESEND_API_KEY) {
+        console.error('❌ RESEND_API_KEY not found in environment variables!');
+        console.error('⚠️  Email service will NOT work!');
+    } else {
+        resend = new Resend(process.env.RESEND_API_KEY);
+        emailServiceReady = true;
+        console.log('✅ Email Service Ready (Resend)');
+    }
+} catch (error) {
+    console.error('❌ Failed to initialize Resend:', error.message);
+}
+
+// Send Verification Email with proper error handling
 const sendVerificationEmail = async (email, code) => {
-    await resend.emails.send({
-        from: 'COGNI AI <onboarding@resend.dev>',
-        to: email,
-        subject: '🔐 COGNI AI: Your Verification Code',
-        html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
-                <h2 style="color: #2563eb; text-align: center;">Welcome to COGNI AI</h2>
-                <p>Hello,</p>
-                <p>Use the verification code below to activate your account:</p>
-                <div style="text-align: center; margin: 30px 0;">
-                    <span style="font-size: 2.5rem; font-weight: 800; letter-spacing: 5px; color: #1e293b; background: #f1f5f9; padding: 10px 20px; border-radius: 8px;">${code}</span>
+    console.log('\n📧 Attempting to send verification email...');
+    console.log('To:', email);
+    console.log('Code:', code);
+    console.log('Email Service Ready:', emailServiceReady);
+
+    if (!emailServiceReady || !resend) {
+        const error = new Error('Email service not configured. Check RESEND_API_KEY in environment variables.');
+        console.error('❌', error.message);
+        throw error;
+    }
+
+    try {
+        const result = await resend.emails.send({
+            from: 'COGNI AI <onboarding@resend.dev>',
+            to: email,
+            subject: '🔐 COGNI AI: Your Verification Code',
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
+                    <h2 style="color: #2563eb; text-align: center;">Welcome to COGNI AI</h2>
+                    <p>Hello,</p>
+                    <p>Use the verification code below to activate your account:</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <span style="font-size: 2.5rem; font-weight: 800; letter-spacing: 5px; color: #1e293b; background: #f1f5f9; padding: 10px 20px; border-radius: 8px;">${code}</span>
+                    </div>
+                    <p>This code expires in 10 minutes.</p>
+                    <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+                    <p style="font-size: 0.8rem; color: #64748b; text-align: center;">© 2026 COGNI AI Forum</p>
                 </div>
-                <p>This code expires in 10 minutes.</p>
-                <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-                <p style="font-size: 0.8rem; color: #64748b; text-align: center;">© 2026 COGNI AI Forum</p>
-            </div>
-        `
-    });
+            `
+        });
+
+        console.log('✅ Email sent successfully!');
+        console.log('📧 Message ID:', result.id);
+        return result;
+    } catch (error) {
+        console.error('❌ EMAIL SENDING FAILED!');
+        console.error('Error:', error.message);
+        console.error('Full Error:', error);
+        throw new Error(`Failed to send email: ${error.message}`);
+    }
 };
 
-// ─────────────────────────────────────────────
-// FIX 2: Use memoryStorage instead of diskStorage.
-// Render's filesystem is ephemeral — files in /uploads
-// are deleted on every deploy/restart.
-// Since you have max ~5 events, storing images as Base64
-// strings directly in MongoDB is the right approach.
-// ─────────────────────────────────────────────
-const upload = multer({ storage: multer.memoryStorage() });
+// ═══════════════════════════════════════════════
+// FILE UPLOAD CONFIGURATION
+// ═══════════════════════════════════════════════
+
+const upload = multer({ 
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
 
 // Helper: Convert buffer to Base64 Data URL
 const bufferToBase64 = (buffer, mimetype) => {
     return `data:${mimetype};base64,${buffer.toString('base64')}`;
 };
 
-const app = express();
-app.use(cors());
-app.use(express.json({ limit: '10mb' })); // Increase limit for Base64 payloads
+// ═══════════════════════════════════════════════
+// EXPRESS APP SETUP
+// ═══════════════════════════════════════════════
 
-// MongoDB Connection
+const app = express();
+
+// CORS Configuration
+const allowedOrigins = [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:5174',
+    process.env.FRONTEND_URL,
+];
+
+app.use(cors({
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.includes(origin) || origin?.endsWith('.vercel.app')) {
+            callback(null, true);
+        } else {
+            callback(null, true); // Allow all in development
+        }
+    },
+    credentials: true
+}));
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// ═══════════════════════════════════════════════
+// MONGODB CONNECTION
+// ═══════════════════════════════════════════════
+
 mongoose.connect(process.env.MONGO_URI, {
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
@@ -79,24 +140,66 @@ mongoose.connect(process.env.MONGO_URI, {
         console.error('❌ MongoDB Connection Error:', err.message);
     });
 
-// ─── AUTH ROUTES ───────────────────────────────
+mongoose.connection.on('error', err => {
+    console.error('MongoDB error:', err);
+});
 
-// Signup Route
+// ═══════════════════════════════════════════════
+// HEALTH CHECK
+// ═══════════════════════════════════════════════
+
+app.get('/', (req, res) => {
+    res.json({ 
+        message: 'COGNI AI Backend API',
+        status: 'Running',
+        emailService: emailServiceReady ? 'Ready' : 'Not Configured',
+        database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'
+    });
+});
+
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'OK',
+        emailService: emailServiceReady,
+        database: mongoose.connection.readyState === 1,
+        timestamp: new Date().toISOString()
+    });
+});
+
+// ═══════════════════════════════════════════════
+// AUTH ROUTES
+// ═══════════════════════════════════════════════
+
+// Signup Route with PROPER error handling
 app.post('/api/auth/signup', async (req, res) => {
     try {
-        console.log('📝 Signup Request Body:', req.body);
+        console.log('\n' + '='.repeat(50));
+        console.log('📝 NEW SIGNUP REQUEST');
+        console.log('='.repeat(50));
+        console.log('Body:', req.body);
+        
         const { role, name, email, password, number, year, dept, rollno } = req.body;
 
+        // Check if user exists
         const existingUser = await User.findOne({ email });
         if (existingUser) {
-            return res.status(400).json({ message: 'User already exists' });
+            console.log('⚠️  User already exists:', email);
+            return res.status(400).json({ 
+                success: false,
+                message: 'User already exists with this email' 
+            });
         }
 
+        // Hash password
         const hashedPassword = await bcrypt.hash(password, 10);
 
+        // Generate verification code
         const vCode = Math.floor(100000 + Math.random() * 900000).toString();
         const vExpires = new Date(Date.now() + 10 * 60 * 1000);
 
+        console.log('🔢 Generated OTP:', vCode);
+
+        // Create new user
         const newUser = new User({
             role, name, email, password: hashedPassword,
             number, year, dept, rollno,
@@ -106,22 +209,43 @@ app.post('/api/auth/signup', async (req, res) => {
         });
 
         await newUser.save();
-        console.log(`👤 New user created: ${email}. Sending OTP...`);
+        console.log('👤 New user created in database:', email);
 
+        // Send verification email - WITH PROPER ERROR HANDLING
         try {
+            console.log('📧 Attempting to send verification email...');
             await sendVerificationEmail(email, vCode);
-            console.log(`✅ OTP sent to ${email}`);
+            console.log('✅ Verification email sent successfully!');
+            
+            // Success response
+            res.status(201).json({
+                success: true,
+                message: 'Verification code sent to your email! Please check your inbox.',
+                email: newUser.email
+            });
         } catch (emailError) {
-            console.error('⚠️ Email send failed (user still saved):', emailError.message);
-        }
+            // EMAIL FAILED - Delete user and return error
+            console.error('❌ EMAIL SENDING FAILED!');
+            console.error('Error:', emailError.message);
+            
+            // Delete the user since email failed
+            await User.findByIdAndDelete(newUser._id);
+            console.log('🗑️  Deleted user due to email failure');
 
-        res.status(201).json({
-            message: 'Verification code sent to your email!',
-            email: newUser.email
-        });
+            // Return proper error to frontend
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to send verification email. Please try again later.',
+                error: emailError.message,
+                details: 'Email service is not configured properly or failed to send. Please contact support.'
+            });
+        }
     } catch (error) {
         console.error('❌ Signup Error:', error);
-        res.status(500).json({ message: 'Signup failed: ' + error.message });
+        res.status(500).json({ 
+            success: false,
+            message: 'Signup failed: ' + error.message 
+        });
     }
 });
 
@@ -129,20 +253,42 @@ app.post('/api/auth/signup', async (req, res) => {
 app.post('/api/auth/verify', async (req, res) => {
     try {
         const { email, code } = req.body;
+        console.log('🔍 Verification attempt:', email, code);
+
         const user = await User.findOne({ email });
 
-        if (!user) return res.status(404).json({ message: 'User not found' });
-        if (user.isVerified) return res.status(400).json({ message: 'Account already verified' });
-        if (user.verificationCode !== code) return res.status(400).json({ message: 'Invalid code' });
-        if (new Date() > user.verificationExpires) return res.status(400).json({ message: 'Code expired' });
+        if (!user) {
+            console.log('❌ User not found');
+            return res.status(404).json({ message: 'User not found' });
+        }
+        
+        if (user.isVerified) {
+            console.log('⚠️  Already verified');
+            return res.status(400).json({ message: 'Account already verified' });
+        }
+        
+        if (user.verificationCode !== code) {
+            console.log('❌ Invalid code');
+            return res.status(400).json({ message: 'Invalid verification code' });
+        }
+        
+        if (new Date() > user.verificationExpires) {
+            console.log('❌ Code expired');
+            return res.status(400).json({ message: 'Verification code expired' });
+        }
 
         user.isVerified = true;
         user.verificationCode = undefined;
         user.verificationExpires = undefined;
         await user.save();
 
-        res.json({ message: 'Account verified successfully! You can now login.' });
+        console.log('✅ Account verified successfully');
+        res.json({ 
+            success: true,
+            message: 'Account verified successfully! You can now login.' 
+        });
     } catch (error) {
+        console.error('❌ Verification error:', error);
         res.status(500).json({ message: 'Verification failed' });
     }
 });
@@ -151,12 +297,24 @@ app.post('/api/auth/verify', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
     try {
         const { email, password, role } = req.body;
+        console.log('🔐 Login attempt:', email, role);
 
         const user = await User.findOne({ email, role });
-        if (!user) return res.status(400).json({ message: 'Account not found' });
+        if (!user) {
+            console.log('❌ Account not found');
+            return res.status(400).json({ message: 'Account not found with this role' });
+        }
+
+        if (!user.isVerified) {
+            console.log('⚠️  Account not verified');
+            return res.status(400).json({ message: 'Please verify your email first' });
+        }
 
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(400).json({ message: 'Invalid password' });
+        if (!isMatch) {
+            console.log('❌ Invalid password');
+            return res.status(400).json({ message: 'Invalid password' });
+        }
 
         const token = jwt.sign(
             { id: user._id, role: user.role },
@@ -164,31 +322,41 @@ app.post('/api/auth/login', async (req, res) => {
             { expiresIn: '24h' }
         );
 
+        console.log('✅ Login successful');
         res.json({
+            success: true,
             token,
-            user: { id: user._id, name: user.name, email: user.email, role: user.role }
+            user: { 
+                id: user._id, 
+                name: user.name, 
+                email: user.email, 
+                role: user.role,
+                dept: user.dept,
+                year: user.year
+            }
         });
     } catch (error) {
+        console.error('❌ Login error:', error);
         res.status(500).json({ message: 'Login failed' });
     }
 });
 
-// ─── EVENT ROUTES ──────────────────────────────
+// ═══════════════════════════════════════════════
+// EVENT ROUTES
+// ═══════════════════════════════════════════════
 
 // Create Event
-// Accepts multipart/form-data with optional imageFile.
-// Image is stored as Base64 in MongoDB — no disk involved.
 app.post('/api/events', upload.single('imageFile'), async (req, res) => {
     try {
-        console.log('📝 Create Event Body:', req.body); // ADD THIS
-        console.log('📁 Create Event File:', req.file ? 'File received' : 'No file'); // ADD THIS
+        console.log('📝 Create Event Body:', req.body);
+        console.log('📁 File:', req.file ? 'Received' : 'No file');
 
         const { title, description, type, department, audience, registrationDeadline, image, isPaid, price } = req.body;
 
-        if (!description || !audience) {
+        if (!title || !description || !audience) {
             return res.status(400).json({ 
-                message: 'Missing fields', 
-                received: req.body  // This will show what actually arrived
+                message: 'Missing required fields',
+                required: ['title', 'description', 'audience']
             });
         }
 
@@ -205,14 +373,19 @@ app.post('/api/events', upload.single('imageFile'), async (req, res) => {
             audience,
             registrationDeadline,
             image: imageData,
-            isPaid: isPaid === 'true',
+            isPaid: isPaid === 'true' || isPaid === true,
             price: Number(price) || 0
         });
 
         await newEvent.save();
-        res.status(201).json({ message: 'Event created successfully', event: newEvent });
+        console.log('✅ Event created:', title);
+        res.status(201).json({ 
+            success: true,
+            message: 'Event created successfully', 
+            event: newEvent 
+        });
     } catch (error) {
-        console.error('Create Event Error:', error);
+        console.error('❌ Create Event Error:', error);
         res.status(500).json({ message: 'Server error during event creation' });
     }
 });
@@ -222,7 +395,9 @@ app.get('/api/events', async (req, res) => {
     try {
         const query = {};
         if (req.query.audience) query.audience = { $in: [req.query.audience, 'Both'] };
-        if (req.query.department && req.query.department !== 'ALL') query.department = { $in: [req.query.department, 'ALL'] };
+        if (req.query.department && req.query.department !== 'ALL') {
+            query.department = { $in: [req.query.department, 'ALL'] };
+        }
         if (req.query.isPaid !== undefined) query.isPaid = req.query.isPaid === 'true';
 
         const events = await Event.find(query).sort({ createdAt: -1 });
@@ -267,7 +442,6 @@ app.put('/api/events/:id', upload.single('imageFile'), async (req, res) => {
 
         let updateData = { title, description, type, department, audience, registrationDeadline };
 
-        // FIX 2: Same Base64 approach for updates
         if (req.file) {
             updateData.image = bufferToBase64(req.file.buffer, req.file.mimetype);
         } else if (imageUrl) {
@@ -289,9 +463,11 @@ app.put('/api/events/:id', upload.single('imageFile'), async (req, res) => {
     }
 });
 
-// ─── USER ROUTES ───────────────────────────────
+// ═══════════════════════════════════════════════
+// USER ROUTES
+// ═══════════════════════════════════════════════
 
-// Search user by email (for teams)
+// Search user by email
 app.get('/api/users/search', async (req, res) => {
     try {
         const user = await User.findOne({ email: req.query.email });
@@ -335,15 +511,17 @@ app.put('/api/users/profile', async (req, res) => {
     }
 });
 
-// ─── REGISTRATION ROUTES ───────────────────────
+// ═══════════════════════════════════════════════
+// REGISTRATION ROUTES
+// ═══════════════════════════════════════════════
 
-// Register for Event (Individual/Team)
+// Register for Event
 app.post('/api/registrations', async (req, res) => {
     try {
         const { userId, eventId, registrationType, teamName, classYear, rollno, invitationId } = req.body;
 
         const existing = await Registration.findOne({ user: userId, event: eventId });
-        if (existing) return res.status(400).json({ message: 'Already registered' });
+        if (existing) return res.status(400).json({ message: 'Already registered for this event' });
 
         const isTeam = registrationType === 'Team';
         let teamLeaderId = isTeam ? userId : null;
@@ -388,7 +566,11 @@ app.post('/api/registrations', async (req, res) => {
 
         await newRegistration.save();
 
-        const updatedUser = await User.findByIdAndUpdate(userId, { $inc: { aiPoints: 5 } }, { new: true });
+        const updatedUser = await User.findByIdAndUpdate(
+            userId, 
+            { $inc: { aiPoints: 5 } }, 
+            { new: true }
+        );
 
         res.status(201).json({
             message: 'Successfully registered!',
@@ -414,7 +596,9 @@ app.get('/api/registrations/user/:userId', async (req, res) => {
     }
 });
 
-// ─── TEAM ROUTES ───────────────────────────────
+// ═══════════════════════════════════════════════
+// TEAM ROUTES
+// ═══════════════════════════════════════════════
 
 // Send Invitation
 app.post('/api/teams/invite', async (req, res) => {
@@ -495,11 +679,11 @@ app.post('/api/teams/invitations/:id/respond', async (req, res) => {
     }
 });
 
-// Confirm Team (Leader only)
+// Confirm Team
 app.post('/api/teams/confirm/:regId', async (req, res) => {
     try {
         const reg = await Registration.findById(req.params.regId);
-        if (!reg) return res.status(404).json({ message: 'Not found' });
+        if (!reg) return res.status(404).json({ message: 'Registration not found' });
 
         await Registration.updateMany(
             { teamLeader: reg.teamLeader, event: reg.event },
@@ -512,7 +696,9 @@ app.post('/api/teams/confirm/:regId', async (req, res) => {
     }
 });
 
-// ─── ADMIN ROUTES ──────────────────────────────
+// ═══════════════════════════════════════════════
+// ADMIN ROUTES
+// ═══════════════════════════════════════════════
 
 // Dashboard Stats
 app.get('/api/dashboard/stats', async (req, res) => {
@@ -530,7 +716,14 @@ app.get('/api/dashboard/stats', async (req, res) => {
             return { ...event.toObject(), registrationCount };
         }));
 
-        res.json({ totalUsers, totalEvents, totalRegistrations, studentCount, facultyCount, events: eventsWithStats });
+        res.json({ 
+            totalUsers, 
+            totalEvents, 
+            totalRegistrations, 
+            studentCount, 
+            facultyCount, 
+            events: eventsWithStats 
+        });
     } catch (error) {
         console.error('Stats Error:', error);
         res.status(500).json({ message: 'Server error fetching stats' });
@@ -544,7 +737,8 @@ app.get('/api/admin/analytics', async (req, res) => {
         let query = {};
         if (eventId) query.event = eventId;
 
-        const registrations = await Registration.find(query).populate('user', 'name email dept rollno year');
+        const registrations = await Registration.find(query)
+            .populate('user', 'name email dept rollno year isVerified');
 
         const deptStats = {};
         const yearStats = {};
@@ -586,8 +780,17 @@ app.get('/api/admin/analytics', async (req, res) => {
             }
         }
 
-        res.json({ deptStats, yearStats, eventStats, totalRegistrations, confirmedCount, pendingCount, registrations: registrationList });
+        res.json({ 
+            deptStats, 
+            yearStats, 
+            eventStats, 
+            totalRegistrations, 
+            confirmedCount, 
+            pendingCount, 
+            registrations: registrationList 
+        });
     } catch (error) {
+        console.error('Analytics Error:', error);
         res.status(500).json({ message: 'Analytics failed' });
     }
 });
@@ -625,19 +828,22 @@ app.get('/api/admin/export/registrations', async (req, res) => {
         res.setHeader('Content-Disposition', `attachment; filename=registrations_${eventId || 'all'}.csv`);
         res.send(csv);
     } catch (error) {
+        console.error('Export Error:', error);
         res.status(500).json({ message: 'Export failed' });
     }
 });
 
 // Generate & Email Certificates
-// Certificate template is uploaded in-memory (not saved to disk)
 app.post('/api/events/:id/certificates', upload.single('template'), async (req, res) => {
     try {
         const eventId = req.params.id;
         const event = await Event.findById(eventId);
         if (!event) return res.status(404).json({ message: 'Event not found' });
 
-        const registrations = await Registration.find({ event: eventId, isConfirmed: true }).populate('user');
+        const registrations = await Registration.find({ 
+            event: eventId, 
+            isConfirmed: true 
+        }).populate('user');
 
         if (registrations.length === 0) {
             return res.status(400).json({ message: 'No confirmed registrations found.' });
@@ -647,7 +853,6 @@ app.post('/api/events/:id/certificates', upload.single('template'), async (req, 
             return res.status(400).json({ message: 'Certificate template is required' });
         }
 
-        // FIX 2: Load template from memory buffer directly
         const templateImage = await loadImage(req.file.buffer);
         let sentCount = 0;
 
@@ -677,46 +882,78 @@ app.post('/api/events/:id/certificates', upload.single('template'), async (req, 
 
             const buffer = canvas.toBuffer('image/png');
 
-            const mailOptions = {
-                from: `"COGNI AI Team" <${process.env.EMAIL_USER}>`,
-                to: reg.user.email,
-                subject: `🎓 Certificate of Participation - ${event.title}`,
-                html: `
-                    <div style="font-family: Arial, sans-serif; padding: 20px;">
-                        <h2 style="color: #2563eb;">Certificate of Completion</h2>
-                        <p>Dear ${reg.user.name},</p>
-                        <p>Congratulations on completing <strong>${event.title}</strong>!</p>
-                        <p>Please find your official certificate attached to this email.</p>
-                        <br>
-                        <p>Best Regards,</p>
-                        <p><strong>COGNI AI Team</strong></p>
-                    </div>
-                `,
-                attachments: [
-                    {
-                        filename: `Certificate - ${reg.user.name}.png`,
-                        content: buffer
-                    }
-                ]
-            };
-
             try {
-                await transporter.sendMail(mailOptions);
+                // Send certificate via Resend
+                await resend.emails.send({
+                    from: 'COGNI AI Team <onboarding@resend.dev>',
+                    to: reg.user.email,
+                    subject: `🎓 Certificate of Participation - ${event.title}`,
+                    html: `
+                        <div style="font-family: Arial, sans-serif; padding: 20px;">
+                            <h2 style="color: #2563eb;">Certificate of Completion</h2>
+                            <p>Dear ${reg.user.name},</p>
+                            <p>Congratulations on completing <strong>${event.title}</strong>!</p>
+                            <p>Please find your official certificate attached to this email.</p>
+                            <br>
+                            <p>Best Regards,</p>
+                            <p><strong>COGNI AI Team</strong></p>
+                        </div>
+                    `,
+                    attachments: [
+                        {
+                            filename: `Certificate-${reg.user.name}.png`,
+                            content: buffer.toString('base64')
+                        }
+                    ]
+                });
                 sentCount++;
+                console.log(`✅ Certificate sent to ${reg.user.email}`);
             } catch (err) {
-                console.error(`Failed to send cert to ${reg.user.email}:`, err.message);
+                console.error(`❌ Failed to send cert to ${reg.user.email}:`, err.message);
             }
         }
 
-        res.json({ message: `Done. Sent ${sentCount} of ${registrations.length} certificates.` });
+        res.json({ 
+            message: `Done! Sent ${sentCount} of ${registrations.length} certificates.` 
+        });
     } catch (error) {
         console.error('Certificate Generation Error:', error);
         res.status(500).json({ message: 'Failed to generate certificates' });
     }
 });
 
-// ─── START SERVER ──────────────────────────────
+// ═══════════════════════════════════════════════
+// START SERVER
+// ═══════════════════════════════════════════════
+
 const PORT = process.env.PORT || 5000;
+
 app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+    console.log('\n' + '='.repeat(60));
+    console.log('🚀 COGNI AI Backend Server');
+    console.log('='.repeat(60));
+    console.log(`📡 Port: ${PORT}`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`📧 Email Service: ${emailServiceReady ? '✅ Ready' : '❌ Not Configured'}`);
+    console.log(`💾 Database: ${mongoose.connection.readyState === 1 ? '✅ Connected' : '⏳ Connecting...'}`);
+    console.log('='.repeat(60) + '\n');
+    
+    if (!emailServiceReady) {
+        console.log('⚠️  WARNING: Email service is NOT configured!');
+        console.log('⚠️  Set RESEND_API_KEY in your environment variables');
+        console.log('⚠️  Get API key from: https://resend.com/api-keys\n');
+    }
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+    console.log('SIGTERM received, closing server...');
+    await mongoose.connection.close();
+    process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+    console.log('\nSIGINT received, closing server...');
+    await mongoose.connection.close();
+    process.exit(0);
 });
