@@ -24,76 +24,149 @@ const __dirname = path.dirname(__filename);
 // EMAIL CONFIGURATION - RESEND
 // ═══════════════════════════════════════════════
 
+
 let resend = null;
 let emailServiceReady = false;
 
 try {
     if (!process.env.RESEND_API_KEY) {
         console.error('❌ RESEND_API_KEY not found!');
+        console.error('⚠️  Get it from: https://resend.com/api-keys');
     } else {
         resend = new Resend(process.env.RESEND_API_KEY);
         emailServiceReady = true;
         console.log('✅ Email Service Ready (Resend)');
+        console.log('📧 Domain: ' + (process.env.EMAIL_DOMAIN || 'Not set'));
     }
 } catch (error) {
     console.error('❌ Failed to initialize Resend:', error.message);
 }
 
-// Send Verification Email
 const sendVerificationEmail = async (email, code) => {
     console.log('\n📧 Attempting to send verification email...');
     console.log('To:', email);
     console.log('Code:', code);
+    console.log('From Domain:', process.env.EMAIL_DOMAIN);
     console.log('Email Service Ready:', emailServiceReady);
 
     if (!emailServiceReady || !resend) {
-        throw new Error('Email service not configured.');
+        throw new Error('Email service not configured. Check RESEND_API_KEY.');
+    }
+
+    if (!process.env.EMAIL_DOMAIN) {
+        throw new Error('EMAIL_DOMAIN not set in environment variables.');
     }
 
     try {
-        // IMPORTANT: Resend allows sending to ANY email when using delivered@resend.dev
-        // This bypasses the audience restriction!
         const { data, error } = await resend.emails.send({
-            from: 'COGNI AI <delivered@resend.dev>', // Use this special domain
+            from: `COGNI AI <noreply@${process.env.EMAIL_DOMAIN}>`,
             to: [email],
             subject: '🔐 COGNI AI: Your Verification Code',
             html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
-                    <h2 style="color: #2563eb; text-align: center;">Welcome to COGNI AI</h2>
-                    <p>Hello,</p>
-                    <p>Use the verification code below to activate your account:</p>
-                    <div style="text-align: center; margin: 30px 0;">
-                        <span style="font-size: 2.5rem; font-weight: 800; letter-spacing: 5px; color: #1e293b; background: #f1f5f9; padding: 10px 20px; border-radius: 8px;">${code}</span>
-                    </div>
-                    <p>This code expires in 10 minutes.</p>
-                    <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-                    <p style="font-size: 0.8rem; color: #64748b; text-align: center;">© 2026 COGNI AI Forum</p>
-                </div>
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                </head>
+                <body style="margin: 0; padding: 0; background-color: #f4f4f4; font-family: Arial, sans-serif;">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f4f4f4; padding: 20px;">
+                        <tr>
+                            <td align="center">
+                                <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                                    <!-- Header -->
+                                    <tr>
+                                        <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center;">
+                                            <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: bold;">COGNI AI</h1>
+                                        </td>
+                                    </tr>
+                                    
+                                    <!-- Content -->
+                                    <tr>
+                                        <td style="padding: 40px 30px;">
+                                            <h2 style="color: #2563eb; margin: 0 0 20px 0; font-size: 24px;">Welcome to COGNI AI!</h2>
+                                            <p style="color: #555; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+                                                Thank you for signing up. Use the verification code below to activate your account:
+                                            </p>
+                                            
+                                            <!-- OTP Box -->
+                                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 30px 0;">
+                                                <tr>
+                                                    <td align="center">
+                                                        <div style="background: #f1f5f9; border-radius: 10px; padding: 20px; display: inline-block;">
+                                                            <span style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #1e293b; font-family: 'Courier New', monospace;">
+                                                                ${code}
+                                                            </span>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </table>
+                                            
+                                            <p style="color: #64748b; font-size: 14px; line-height: 1.6; margin: 20px 0;">
+                                                This code will expire in <strong>10 minutes</strong>.
+                                            </p>
+                                            
+                                            <p style="color: #64748b; font-size: 14px; line-height: 1.6; margin: 20px 0;">
+                                                If you didn't request this code, please ignore this email.
+                                            </p>
+                                        </td>
+                                    </tr>
+                                    
+                                    <!-- Footer -->
+                                    <tr>
+                                        <td style="background-color: #f8f9fa; padding: 20px 30px; text-align: center; border-top: 1px solid #e0e0e0;">
+                                            <p style="color: #64748b; font-size: 12px; margin: 0;">
+                                                © 2026 COGNI AI Forum. All rights reserved.
+                                            </p>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+                    </table>
+                </body>
+                </html>
             `,
-            text: `Your COGNI AI verification code is: ${code}. This code expires in 10 minutes.`
+            text: `Your COGNI AI verification code is: ${code}\n\nThis code will expire in 10 minutes.\n\nIf you didn't request this code, please ignore this email.\n\n© 2026 COGNI AI Forum`
         });
 
+        // Check for errors
         if (error) {
-            console.error('❌ Resend Error:', error);
-            throw new Error(`Resend Error: ${error.message || JSON.stringify(error)}`);
+            console.error('❌ Resend returned error:', error);
+            console.error('Error details:', JSON.stringify(error, null, 2));
+            
+            // Better error messages
+            let errorMessage = 'Failed to send email';
+            if (error.message?.includes('not verified')) {
+                errorMessage = 'Domain not verified in Resend. Please verify your domain at resend.com/domains';
+            } else if (error.message?.includes('API key')) {
+                errorMessage = 'Invalid Resend API key. Please check your configuration.';
+            } else if (error.message?.includes('rate limit')) {
+                errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+            }
+            
+            throw new Error(errorMessage);
         }
 
+        // Check if we got a message ID
         if (!data || !data.id) {
-            console.error('❌ No message ID returned');
-            console.error('Response:', { data, error });
+            console.error('❌ No message ID returned from Resend');
+            console.error('Response data:', data);
             throw new Error('Email sending failed - no message ID returned');
         }
 
         console.log('✅ Email sent successfully!');
         console.log('📧 Message ID:', data.id);
+        console.log('📧 To:', email);
         
         return { success: true, messageId: data.id };
     } catch (error) {
         console.error('❌ EMAIL SENDING FAILED!');
-        console.error('Error:', error.message);
+        console.error('Error Type:', error.name);
+        console.error('Error Message:', error.message);
         console.error('Full Error:', error);
         
-        throw new Error(`Failed to send email: ${error.message}`);
+        throw error;
     }
 };
 
